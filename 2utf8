@@ -1,0 +1,114 @@
+#!/bin/bash
+
+Version=1.00
+Myname="${0##*/}"
+
+:<<'DOC'
+= 2utf8 - convert text to utf8, with unix line endings
+
+= Synopsis
+2utf8 [options] [input... ]	
+
+== Options:
+-h,--help	print this help and exit
+-H,--Help	print full documentation via less and exit
+-V,--version	print version and exit
+
+Examples:
+2utf8		filter: convert standard input to standard output
+2utf8 >output	convert standard input to file output
+		note: on error, file output will be empty!
+2utf8 a b c	convert files a, b, and c in place
+
+= Description
+2utf8 tries to detect the encoding of a text file, and:
+- converts it to utf8,
+- converts CRLF (MS-DOS line ending) to LF (unix line ending)
+
+If no arguments are given, 2utf8 acts as a filter, converting standard
+input to standard output. Any arguments are considered filenames, to be
+converted in place. 
+
+= Exit value
+If all conversion went ok, the script exits with exit value 0.
+Any unsuccessfull conversions increment the exit value with 1.
+
+
+= Author
+[Wybo Dekker](wybo@dekkerdocumenten.nl)
+
+= Copyright
+Released under the [GNU General Public License](www.gnu.org/copyleft/gpl.html)
+DOC
+
+REd='\e[38;5;9m' Mag='\e[38;5;5m' Nor='\e[0m'
+    die() { local i; for i; do echo -e "$Myname: $REd$i$Nor"; done 1>&2; exit 1; }
+   Warn() { local i; for i; do echo -e "$Myname: $Mag$i$Nor"; done 1>&2; }
+helpsrt() { sed -n '/^= Synopsis/,/^= /p' "$0"|sed '1d;$d'; exit; }
+helpall() { sed -n "/^:<<'DOC'$/,/^DOC/p" "$0"|sed '1d;$d'|
+            less -P"$Myname-${Version/./·} (press h for help, q to quit)";exit; }
+
+:<<'DOC' #----------------------------------------------------------------------
+= handle_options
+synopsis:	 handle_options "$@"
+description:	handle the options.
+globals used:	 Myname Version
+globals  set:	 args
+DOC
+#-------------------------------------------------------------------------------
+handle_options() {
+   options=$(getopt \
+      -n "$Myname" \
+      -o hHVI \
+      -l help,Help,version -- "$@"
+   ) || exit 1
+   eval set -- "$options"
+   
+   while true; do
+      case $1 in
+      (-h|--help)    # print short help and exit
+            helpsrt
+            ;;
+      (-H|--Help)    # print full documentation and exit
+            helpall
+            ;;
+      (-V|--version) # print version and exit
+            echo $Version
+            exit
+            ;;
+      (-I)  instscript "$0" ||
+   	    die 'the -I option is for developers only'
+               exit
+   	    ;;
+      (--)  shift
+	    break
+	    ;;
+      (*)   break
+	    ;;
+      esac
+   done
+   args=( "$@" )
+}
+
+tmp=$(mktemp -t "$Myname.XXXXXXXXXX")
+trap 'rm -f "$tmp"' 0 1 2 15
+handle_options "$@"
+set -- "${args[@]}"
+
+if [[ $# -eq 0 ]]; then
+   set /dev/stdin
+else
+   out="> \$i"
+fi
+
+for i; do
+   test -e "$i"   || die "not found"
+   test -r "$i"   || die "is read-protected"
+   test -n "$out" -a ! -w "$i" && die "is write protected" 2>&1
+   cp "$i" "$tmp"
+   enc=$(file --mime-encoding --brief "$tmp")
+   typ=$(file --mime-type     --brief "$tmp")
+   [[ $enc =~ ^unknown ]] && Warn "unknown encoding"
+   [[ $typ =~ ^text    ]] || Warn "is not a text file"
+   eval "iconv --from=$enc --to=utf8 $tmp |tr -d '\r' $out"
+done
